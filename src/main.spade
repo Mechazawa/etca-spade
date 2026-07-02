@@ -38,6 +38,30 @@ fn alu(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>, Flags) {
     )
 }
 
+enum Instruction {
+    ComputeReg{opcode: uint<4>, a: uint<3>, b: uint<3>},
+    ComputeImm{opcode: uint<4>, a: uint<3>, b: uint<5>},
+    CondRelJump{opcode: uint<4>,  disp: uint<8>},
+    NoOp,
+}
+
+fn decode(instr: uint<WORD>) {
+    let format_marker: uint<2> = trunc(instr >> (WORD - 2));
+    let opcode: uint<4> = trunc(instr >> 8);
+
+    // janky decoder is fine for the base isa
+    match format_marker {
+        0b00 => if trunc(instr >> (WORD - 4)) == 0b0001 {
+            let reg_a: uint<3> = trunc(instr >> 5);
+            let reg_b: uint<3> = trunc(instr >> 2);
+
+            if instr & 0b11 == 0 {
+                Instruction::ComputeReg(opcode, reg_a, reg_b);
+            }
+        } else { Instruction::NoOp },
+        _ => Instruction::NoOp,
+    }
+}
 
 entity main(
     clk: clock,
@@ -46,7 +70,7 @@ entity main(
     LED_G: inv &bool,
     LED_B: inv &bool,
 ) {
-
+    
 }
 
 // Port names here must match the set_io names in icesugar.pcf.
