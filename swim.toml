@@ -1,0 +1,28 @@
+name = "icesugar_blink"
+
+[synthesis]
+# Top-level entity. Its port names must match the set_io names in icesugar.pcf.
+top = "icesugar_top"
+command = "synth_ice40"
+
+[pnr]
+architecture = "ice40"
+device = "iCE40UP5K"
+package = "sg48"
+pin_file = "icesugar.pcf"
+
+[packing]
+tool = "icepack"
+
+# The iCESugar v1.5 programs through its on-board iCELink debugger, which mounts
+# as a USB mass-storage volume named "iCELink". Copying the packed .bin onto that
+# volume flashes the board (drag-and-drop programming) and needs no extra tools.
+# `swim upload` runs this; #packing_result# expands to the built .bin path.
+[upload]
+tool = "custom"
+commands = ["cp #packing_result# /Volumes/iCELink/"]
+
+# Alternative: the native iCESugar programmer (needs `icesprog` from the icesugar
+# repo on PATH; it is NOT part of the OSS CAD Suite):
+#   [upload]
+#   tool = "icesprog"

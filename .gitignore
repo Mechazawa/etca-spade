@@ -1,0 +1,8 @@
+# swim build artifacts
+/build/
+
+# Surfer waveform-viewer translator (downloaded artifact)
+/.surfer/
+
+# OSS CAD Suite, if installed locally into the project
+/oss-cad-suite/
