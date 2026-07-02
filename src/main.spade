@@ -10,22 +10,30 @@ struct Flags {
 fn alu(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>, Flags) {
     let wide: uint<WORD+1> = match opcode {
         0b000 => a + b,
-        0b001, 0b011 => a - b,
-        0b010 => b - a,
-        0b100 => a | b,
-        0b101 => a ^ b,
-        0b110 => a & b,
-        0b111 => a & b,
+        0b001, 0b011 => trunc(a + (~b) + 1),
+        0b010 => trunc((~a) + b + 1),
+        0b100 => zext(a | b),
+        0b101 => zext(a ^ b),
+        0b110 => zext(a & b),
+        0b111 => zext(a & b),
     };
 
     let result: uint<WORD> = trunc(wide);
+
+    let result_sign = result.to_int() < 0;
+    let a_sign = a.to_int() < 0;
+    let b_sign = b.to_int() < 0;
+    let is_logical = opcode.as_bits()[2] == 1;
+
+    let rhs_sign = if is_sub { !b_sign } else { b_sign };
 
     (
         result,
         Flags$(
             zero: result == 0, 
-            negative: result.as_bits()[WORD - 1] == 1,
-            carry: 
+            negative: result_sign,
+            carry: !is_logical && wide.as_bits()[WORD] == 1,
+            overflow: !is_logical && (a_sign == rhs_sign) && (a_sign != result_sign),
         )
     )
 }
