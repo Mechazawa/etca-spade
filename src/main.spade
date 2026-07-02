@@ -6,6 +6,16 @@
 // The LED is common-anode (active-low): a channel lights when its pin is LOW,
 // which is why each `set` below inverts the logical "lit" signal.
 
+entity blinky(clk: clock, rst: bool, duration: uint<28>) -> bool {
+    reg(clk) count: uint<28> reset(rst: 0) = if count == duration {
+        0
+    } else {
+        trunc(count + 1)
+    };
+
+    count > duration / 2
+}
+
 entity main(
     clk: clock,
     rst: bool,
@@ -13,21 +23,19 @@ entity main(
     LED_G: inv &bool,
     LED_B: inv &bool,
 ) {
-    // Free-running counter. At 12 MHz, bit 24 flips about every 1.4 s, so the
-    // top two bits (24, 25) step through four ~1.4 s phases.
-    reg(clk) count: uint<26> reset(rst: 0) = trunc(count + 1);
-
-    let phase: uint<2> = trunc(count >> 24);
+    reg(clk) tgl: uint<3> = tgl +.1;
 
     // Active-high "this channel should be lit". Phase 3 leaves all off.
-    let red = phase == 0;
-    let green = phase == 1;
-    let blue = phase == 2;
+    let red = inst blinky(clk, rst, 5_000_000);
+    let green = inst blinky(clk, rst, 10_000_000);
+    let blue = inst blinky(clk, rst, 20_000_000);
+
+    let on = tgl == 0;
 
     // Invert for the active-low LED pins.
-    set LED_R = &!red;
-    set LED_G = &!green;
-    set LED_B = &!blue;
+    set LED_R = &!(on && red);
+    set LED_G = &!(on && green);
+    set LED_B = &!(on && blue);
 }
 
 // Port names here must match the set_io names in icesugar.pcf.
@@ -39,6 +47,7 @@ entity icesugar_top(
     LED_G: inv &bool,
     LED_B: inv &bool,
 ) {
-    // No reset line is wired on the board, so hold reset deasserted.
-    inst main(clk, false, LED_R, LED_G, LED_B);
+    reg(clk) rst initial(true) = false;
+
+    inst main(clk, rst, LED_R, LED_G, LED_B);
 }
