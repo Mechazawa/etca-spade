@@ -46,10 +46,11 @@ enum Instruction {
 }
 
 fn decode(instr: uint<WORD>) {
-    let format_marker: uint<2> = trunc(instr >> (WORD - 2));
     let opcode: uint<4> = trunc(instr >> 8);
+    let format_marker: uint<2> = trunc(instr >> (WORD - 2));
 
     // janky decoder is fine for the base isa
+    // would be better to match the msb to see if we have SS and then go on from there, split up the decoder etc.
     match format_marker {
         0b00 => if trunc(instr >> (WORD - 4)) == 0b0001 {
             let reg_a: uint<3> = trunc(instr >> 5);
@@ -70,7 +71,8 @@ entity main(
     LED_G: inv &bool,
     LED_B: inv &bool,
 ) {
-    
+    // reg(clk) regs: [uint<WORD>; 8] initial([0, 0, 0, 0, 0, 0, 0, 0]) = next_regs;
+    // reg(clk) flags: Flags initial(Flags(false, false, false, false)) = next_flags;
 }
 
 // Port names here must match the set_io names in icesugar.pcf.
