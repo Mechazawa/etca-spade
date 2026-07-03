@@ -6,3 +6,6 @@
 
 # OSS CAD Suite, if installed locally into the project
 /oss-cad-suite/
+
+# Editor / IDE settings
+/.vscode/

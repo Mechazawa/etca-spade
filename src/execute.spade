@@ -1,14 +1,5 @@
-mod decoder;
-mod execute;
 
-struct Flags {
-    zero: bool,
-    negative: bool,
-    carry: bool,
-    overflow: bool,
-}
-
-fn alu<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>, Flags) {
+fn math<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>, Flags) {
     let wide: uint<{WORD + 1}> = match opcode {
         0b000 => a + b,
         0b001 => trunc(a + (~b) + 1),
@@ -42,27 +33,13 @@ fn alu<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>
     )
 }
 
-entity main(
-    clk: clock,
-    rst: bool,
-    LED_R: inv &bool,
-    LED_G: inv &bool,
-    LED_B: inv &bool,
-) {
-    // reg(clk) regs: [uint<WORD>; 8] initial([0, 0, 0, 0, 0, 0, 0, 0]) = next_regs;
-    // reg(clk) flags: Flags initial(Flags(false, false, false, false)) = next_flags;
+enum Result<#uint SS> {
+    StoreReg{r: uint<3>, value: uint<{1 << SS}>},
+    StoreMem{addr: uint<16>, value: uint<{1 << SS}>},
+    StoreCr{cr: uint<3>, value: uint<{1 << SS}>},
+    NoOp,
 }
 
-// Port names here must match the set_io names in icesugar.pcf.
-// #[no_mangle(all)] keeps them verbatim in the generated Verilog.
-#[no_mangle(all)]
-entity icesugar_top(
-    clk: clock,
-    LED_R: inv &bool,
-    LED_G: inv &bool,
-    LED_B: inv &bool,
-) {
-    reg(clk) rst initial(true) = false;
-
-    inst main(clk, rst, LED_R, LED_G, LED_B);
+fn execute(instr: Instruction) -> Result {
+    
 }

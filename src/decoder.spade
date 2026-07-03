@@ -1,0 +1,53 @@
+enum Instruction {
+    ComputeReg{opcode: uint<4>, a: uint<3>, b: uint<3>},
+    ComputeImm{opcode: uint<4>, a: uint<3>, b: uint<5>},
+    CondRelJump{opcode: uint<4>, disp: uint<9>},
+    NoOp,
+}
+
+fn decodeComp<#uint WORD>(instr: uint<WORD>) -> Instruction {
+    let format_marker: uint<2> = trunc(instr >> (WORD - 2));
+    let op_size: uint<2> = trunc(instr >> (WORD - 4));
+    let mem_addr_mode: uint<2> = trunc(instr);
+
+    if op_size != 0b01 {
+        Instruction::NoOp
+    } else {
+        let opcode: uint<4> = trunc(instr >> 8);
+        let reg_a: uint<3> = trunc(instr >> 5);
+
+        match format_marker {
+            0b00 => if instr & 0b00 == 0 { 
+                Instruction::ComputeReg(opcode, reg_a, trunc(instr >> 2))
+            } else { Instruction::NoOp },
+            0b01 => Instruction::ComputeImm(opcode, reg_a, trunc(instr)),
+            _ => Instruction::NoOp
+        }
+    }
+}
+
+fn decodeJmp<#uint WORD>(instr: uint<WORD>) -> Instruction {
+    let op_size: uint<2> = trunc(instr >> (WORD - 4));
+
+    if instr &0b00100000_00000000 != 0 {
+        Instruction::NoOp
+    } else {
+        let opcode: uint<4> = trunc(instr >> 8);
+
+        let d_lsb: uint<8> = trunc(instr);
+        let d_msb: uint<1> = trunc(instr >> (WORD - 8 - 4));
+
+        Instruction::CondRelJump(opcode, d_msb.concat(d_lsb))
+    }
+}
+
+fn decode<#uint WORD>(instr: uint<WORD>) -> Instruction {
+    let format_marker: uint<2> = trunc(instr >> (WORD - 2));
+
+    match format_marker {
+        0b00 => decodeComp(instr),
+        0b01 => decodeComp(instr),
+        0b10 => decodeJmp(instr),
+        0b11 => Instruction::NoOp,
+    }
+}
