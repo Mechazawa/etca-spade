@@ -1,6 +1,6 @@
 
-fn math<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>, Flags) {
-    let wide: uint<{WORD + 1}> = match opcode {
+fn math<#uint SIZE>(opcode: uint<3>, a: uint<SIZE>, b: uint<SIZE>) -> (uint<SIZE>, Flags) {
+    let wide: uint<{SIZE + 1}> = match opcode {
         0b000 => a + b,
         0b001 => trunc(a + (~b) + 1),
         0b011 => trunc(a + (~b) + 1),
@@ -11,7 +11,7 @@ fn math<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD
         0b111 => zext(a & b),
     };
 
-    let result: uint<WORD> = trunc(wide);
+    let result: uint<SIZE> = trunc(wide);
 
     let result_sign = result.to_int() < 0;
     let a_sign = a.to_int() < 0;
@@ -27,7 +27,7 @@ fn math<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD
         Flags$(
             zero: result == 0, 
             negative: result_sign,
-            carry: !is_logical && wide.as_bits()[WORD],
+            carry: !is_logical && wide.as_bits()[SIZE],
             overflow: !is_logical && (a_sign == rhs_sign) && (a_sign != result_sign),
         )
     )
@@ -40,6 +40,16 @@ enum Result<#uint SS> {
     NoOp,
 }
 
-fn execute(instr: Instruction) -> Result {
-    
+fn execute<#uint SS>(instr: Instruction, flags: Flags, registers: uint<SS>[8]) -> (Result, Option<Flags>) {
+    match instr {
+        Instruction::ComputeReg(opcode, a, b) => {
+            let v_a = registers[v_a];
+            let v_b = registers[v_b];
+
+            
+        },
+        Instruction::ComputeImm{opcode, a, b} =>,
+        Instruction::CondRelJump{opcode, disp} => ,
+        Instruction::NoOp,
+    }
 }
