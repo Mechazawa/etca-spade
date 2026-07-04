@@ -36,14 +36,14 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
     )
 }
 
-pipeline(1) doData<#uint WORD, #uint A, #uint B>(
+pipeline(1) doData<#uint WORD, #uint A, #uint B, #uint W>(
     clk: clock, 
     opcode: uint<3>, 
     a: uint<A>, 
     b: uint<A>, 
     state: State<WORD>,
-    wire w: WritePort<16, uint<WORD>>,
-    wire r: ReadPort<16, uint<WORD>>,
+    wire w: WritePort<W, uint<WORD>>,
+    wire r: ReadPort<W, uint<WORD>>,
 ) -> uint<WORD> {
     let result = match opcode {
         0b000 => zext(b),
@@ -65,14 +65,14 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B>(
     result
 }
 
-pipeline(1) compute<#uint WORD, #uint A, #uint B>(
+pipeline(1) compute<#uint WORD, #uint A, #uint B, #uint M>(
     clk: clock, 
     opcode: uint<4>, 
     a: uint<3>, 
     v_b: uint<A>, 
     state: State<WORD>,
-    wire w: WritePort<WORD, uint<WORD>>,
-    wire r: ReadPort<WORD, uint<WORD>>,
+    wire w: WritePort<M, uint<WORD>>,
+    wire r: ReadPort<M, uint<WORD>>,
 ) ->  (Result<WORD>, Option<Flags>) {
     let v_a = state.registers[a];
     let (output, flags) = if !opcode.as_bits()[3] {
@@ -121,33 +121,21 @@ enum Result<#uint SS> {
     NoOp,
 }
 
-pub pipeline(1) process<#uint SS>(
+pub entity process<#uint SS, #uint M>(
     clk: clock, 
     instr: Instruction, 
     state: State<SS>,
-    wire w: WritePort<SS, uint<SS>>,
-    wire r: ReadPort<SS, uint<SS>>
+    w: WritePort<M, uint<SS>>,
+    r: ReadPort<M, uint<SS>>
 ) -> (Result<SS>, Option<Flags>) {
-    let (opcode, a, v_b) = match instr {
-        Instruction::ComputeReg(opcode, a, b) => {
-            (opcode, a, state.registers[b])
-        },
-        Instruction::ComputeImm(opcode, a, v_b) => {
-            (opcode, a, v_b)
-        },
-        _ => (0b1001, 0, 0),
-    };
-
-    let computed = inst(1) compute(clk, opcode, a, v_b, state, w, r);
-
-    reg;
-
     match instr {
         Instruction::ComputeReg(opcode, a, b) => {
-            computed
+            let v_b = state.registers[b];
+
+            inst(1) compute(clk, opcode, a, v_b, state, w, r)
         },
-        Instruction::ComputeImm(_, _, _) => {
-            computed
+        Instruction::ComputeImm(opcode, a, v_b) => {
+            inst(1) compute(clk, opcode, a, v_b, state, w, r)
         },
         Instruction::CondRelJump(opcode, disp) => {
             let result = if should_jump(opcode, state.flags) {
@@ -166,7 +154,7 @@ fn write_reg<#uint N, #uint V, #uint A>(registers: [uint<V>; N], idx: uint<A>, v
     } else {
         let head = if idx == 0 { val } else { registers[0] };
 
-        [head].concat(write_reg(registers[1..], trunc(idx - 1), val))
+        [head].concat(write_reg(registers[1..], idx - 1, val))
     }
 }
 
