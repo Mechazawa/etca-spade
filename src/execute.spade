@@ -88,7 +88,7 @@ fn should_jump(opcode: uint<4>, flags: Flags) -> bool {
         0b100 => flags.carry || flags.zero,
         0b101 => flags.negative != flags.overflow,
         0b110 => flags.zero || (flags.negative != flags.overflow),
-        0b111 => false,
+        0b111 => true,
     };
 
     if opcode.as_bits()[0] {
