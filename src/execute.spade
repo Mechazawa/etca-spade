@@ -42,8 +42,8 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B>(
     a: uint<A>, 
     b: uint<A>, 
     state: State<WORD>,
-    wire w: WritePort<8, uint<WORD>>,
-    wire r: ReadPort<8, uint<WORD>>,
+    wire w: WritePort<16, uint<WORD>>,
+    wire r: ReadPort<16, uint<WORD>>,
 ) -> uint<WORD> {
     let result = match opcode {
         0b000 => zext(b),
@@ -71,8 +71,8 @@ pipeline(1) compute<#uint WORD, #uint A, #uint B>(
     a: uint<3>, 
     v_b: uint<A>, 
     state: State<WORD>,
-    wire w: WritePort<8, uint<WORD>>,
-    wire r: ReadPort<8, uint<WORD>>,
+    wire w: WritePort<WORD, uint<WORD>>,
+    wire r: ReadPort<WORD, uint<WORD>>,
 ) ->  (Result<WORD>, Option<Flags>) {
     let v_a = state.registers[a];
     let (output, flags) = if !opcode.as_bits()[3] {
@@ -125,17 +125,29 @@ pub pipeline(1) process<#uint SS>(
     clk: clock, 
     instr: Instruction, 
     state: State<SS>,
-    wire w: WritePort<8, uint<SS>>,
-    wire r: ReadPort<8, uint<SS>>
+    wire w: WritePort<SS, uint<SS>>,
+    wire r: ReadPort<SS, uint<SS>>
 ) -> (Result<SS>, Option<Flags>) {
-    let output = match instr {
+    let (opcode, a, v_b) = match instr {
         Instruction::ComputeReg(opcode, a, b) => {
-            let v_b = state.registers[b];
-
-            compute(clk, opcode, a, v_b, state, w, r)
+            (opcode, a, state.registers[b])
         },
         Instruction::ComputeImm(opcode, a, v_b) => {
-            compute(clk, opcode, a, v_b, state, w, r)
+            (opcode, a, v_b)
+        },
+        _ => (0b1001, 0, 0),
+    };
+
+    let computed = inst(1) compute(clk, opcode, a, v_b, state, w, r);
+
+    reg;
+
+    match instr {
+        Instruction::ComputeReg(opcode, a, b) => {
+            computed
+        },
+        Instruction::ComputeImm(_, _, _) => {
+            computed
         },
         Instruction::CondRelJump(opcode, disp) => {
             let result = if should_jump(opcode, state.flags) {
@@ -145,14 +157,11 @@ pub pipeline(1) process<#uint SS>(
             (result, None)
         },
         _ => (Result::NoOp, Option::None)
-    };
-
-    reg;
-    output
+    }
 }
 
 fn write_reg<#uint N, #uint V, #uint A>(registers: [uint<V>; N], idx: uint<A>, val: uint<V>) -> [uint<V>; N] {
-    gen if N == 0 {
+    gen if N == 0 || A == 0 {
         []
     } else {
         let head = if idx == 0 { val } else { registers[0] };

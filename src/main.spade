@@ -19,24 +19,41 @@ pub struct State<#uint W> {
     control_registers: [uint<W>; 3],
 }
 
-entity tick<#uint W>(clk: clock, instr: uint<W>) {
-    let decoded = decode(instr);
-    let (w, r) = dp_bram::<8, uint<W>, 0x7FFF>(clk, clk);
+fn bootloader(pc: uint<8>) -> uint<16> {
+    let b: [uint<16>; _] = [
+        0b00_01_1001_000_000_00,
+        0b00_01_1001_000_000_00,
+        0b00_01_1001_000_000_00,
+        0b00_01_1001_000_000_00,
+    ];
+
+    if zext(b.len()) < pc {
+        0b00_01_1001_000_000_00
+    } else {
+        b[trunc(pc)]
+    }
+}
+
+pipeline(1) fetch(clk: clock, pc: uint<16>, wire r: ReadPort<16, uint<16>>) -> uint<16> {
+    let mem_val = r.inst(1) read(clk, pc);
+
+    reg;
+    match pc {
+        addr if pc < 0xF000 =>  mem_val,
+        addr if pc >= 0xF000 && pc < 0xFA00 => bootloader(trunc(addr - 0xF000)), 
+        _ => 0b00_01_1001_000_000_00, // noop 
+    }
+}
+
+entity main<#uint W>(clk: clock, rst: bool) {
+    let (w, r) = inst dp_bram::<16, uint<W>, 0x7FFF>(clk, clk);
 
     reg(clk) state: State<W> initial(State$(
         pc: 0x8000,
         registers: [0; 8],
         flags: Flags$(zero: false, negative: false, carry: false, overflow: false),
         control_registers: [0, 0, 0],
-    )) = next_state(state, inst process(clk, decoded, state, w, r));
-}
-
-entity main(
-    clk: clock,
-    rst: bool,
-) {
-    // reg(clk) regs: [uint<WORD>; 8] initial([0, 0, 0, 0, 0, 0, 0, 0]) = next_regs;
-    // reg(clk) flags: Flags initial(Flags(false, false, false, false)) = next_flags;
+    )) = next_state(state, inst(1) process(clk, decode(inst(1) fetch(clk, state.pc, r)), state, w, r));
 }
 
 // Port names here must match the set_io names in icesugar.pcf.
@@ -47,5 +64,5 @@ entity icesugar_top(
 ) {
     reg(clk) rst initial(true) = false;
 
-    inst main(clk, rst);
+    inst main::<16>(clk, rst);
 }
