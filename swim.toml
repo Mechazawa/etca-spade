@@ -18,9 +18,12 @@ tool = "icepack"
 # as a USB mass-storage volume named "iCELink". Copying the packed .bin onto that
 # volume flashes the board (drag-and-drop programming) and needs no extra tools.
 # `swim upload` runs this; #packing_result# expands to the built .bin path.
+# The mount point differs by OS: Linux uses /run/media/$USER/iCELink, macOS uses
+# /Volumes/iCELink. Try the Linux path first, fall back to macOS. Wrapped in
+# `sh -c` because swim execs the command directly rather than through a shell.
 [upload]
 tool = "custom"
-commands = ["cp #packing_result# /Volumes/iCELink/"]
+commands = ["sh -c 'cp #packing_result# /run/media/$USER/iCELink/ 2>/dev/null || cp #packing_result# /Volumes/iCELink/'"]
 
 # Alternative: the native iCESugar programmer (needs `icesprog` from the icesugar
 # repo on PATH; it is NOT part of the OSS CAD Suite):
