@@ -1,4 +1,4 @@
-use lib::{Flags, State};
+use lib::{Flags, State, fetch};
 use lib::decoder::Instruction;
 use std::mem::{ReadPort, WritePort};
 
@@ -40,7 +40,7 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B, #uint W>(
     clk: clock, 
     opcode: uint<3>, 
     a: uint<A>, 
-    b: uint<A>, 
+    b: uint<B>, 
     state: State<WORD>,
     wire w: WritePort<W, uint<WORD>>,
     wire r: ReadPort<W, uint<WORD>>,
@@ -52,7 +52,7 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B, #uint W>(
             w.write(b, Some(a));
             a
         },
-        0b010 => r.inst(1) read(clk, b), // Optimize into returning Result::storeMem
+        0b010 => inst(1) fetch(clk, b, r),
         0b100 => (a << 5) | b,
         0b101 => a,
         0b110 => if b < 4 { 
@@ -65,16 +65,19 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B, #uint W>(
     result
 }
 
-pipeline(1) compute<#uint WORD, #uint A, #uint B, #uint M>(
+pipeline(1) compute<#uint WORD, #uint B, #uint M>(
     clk: clock, 
     opcode: uint<4>, 
     a: uint<3>, 
-    v_b: uint<A>, 
+    v_b: uint<B>, 
     state: State<WORD>,
     wire w: WritePort<M, uint<WORD>>,
     wire r: ReadPort<M, uint<WORD>>,
 ) ->  (Result<WORD>, Option<Flags>) {
     let v_a = state.registers[a];
+
+    reg;
+
     let (output, flags) = if !opcode.as_bits()[3] {
         let (o, f) = doMath(trunc(opcode), v_a, v_b);
 

@@ -34,43 +34,81 @@ fn bootloader(pc: uint<8>) -> uint<16> {
     }
 }
 
-pipeline(1) fetch<#uint M>(clk: clock, pc: uint<16>, wire r: ReadPort<M, uint<16>>) -> uint<16> {
-    let data = r.inst(1) read(clk, trunc(pc));
+pipeline(1) fetch<#uint M>(clk: clock, addr: uint<M>, wire r: ReadPort<M, uint<16>>) -> uint<16> {
+    let data = r.inst(1) read(clk, addr);
 
     reg;
 
-    match pc {
-        addr if pc < 0xF000 => data,
-        addr if pc >= 0xF000 && pc < 0xFA00 => bootloader(trunc(addr - 0xF000)), 
-        _ => 0b00_01_1001_000_000_00, // noop 
+    match addr {
+        a if addr < 0xF000 => data,
+        a if addr >= 0xF000 && addr < 0xFA00 => bootloader(trunc(a - 0xF000)), 
+        _ => 0,
     }
 }
 
-pipeline(2) tick<#uint S, #uint W> (clk: clock, state: State<S>, wire w: WritePort<W, uint<S>>, wire r: ReadPort<W, uint<S>>) -> State<S> {
-    let raw_instr = inst(1) fetch(clk, state.pc, r);
+enum Phase { Fetch, Execute, Load }
 
-    reg;
-
-    let decoded = decode(raw_instr);
-    let processed = inst process(clk, decoded, state, w, r);
-
-    reg;
-
-    next_state(state, processed)
+impl Phase {
+    fn next(&self) -> Self {
+        match self {
+            Self::Fetch => Self::Execute,
+            Self::Execute => Self::Load,
+            Self::Load => Self::Fetch,
+        }
+    }
 }
 
-pipeline(2) main<#uint W>(clk: clock, rst: bool) {
-    let (wire w, wire r) = inst dp_bram::<15, uint<W>, 0x7FFF>(clk, clk);
+enum MemReq<#uint W> {
+    None,
+    Read  { addr: uint<W> },
+    Write { addr: uint<W>, data: uint<W> },
+}
 
+entity cpu<#uint W, #uint M>(
+    clk: clock,
+    rst: bool,
+    wire w: WritePort<M, uint<W>>,
+    wire r: ReadPort<M, uint<W>>,
+) -> State<W> {
+    decl next_state;
+    decl next_phase;
+    decl next_instr;
+    decl next_result;
+    decl next_mem_req;
+
+    reg(clk) phase: Phase initial(Phase::Fetch) = next_phase;
+    reg(clk) instr: Instruction initial(Instruction::NoOp)= next_instr; 
+    reg(clk) result: Result<W> initial(Result::NoOp) = next_result;
     reg(clk) state: State<W> initial(State$(
         pc: 0x8000,
         registers: [0; 8],
         flags: Flags$(zero: false, negative: false, carry: false, overflow: false),
         control_registers: [0, 0, 0],
-    )) = inst(2) tick(clk, state, w, r);
+    )) = next_state
 
-    reg * 2;
+    // the loop itself: one match on phase fills all four decls
+    let (next_phase, next_state, next_instr, next_result) = match phase {
+        Phase::Fetch => (
+            Phase::Execute,
+            state,
+            inst fetch(clk, state.pc, r),
+            result,
+        ),
+        Phase::Execute => {
+            Phase::Load,
+            state,
+            instr,
+            inst process(clk, instr, state, w, r),
+        },
+        Phase::Load => (
+            Phase::Fetch,
+            next_state(state, result),
+            instr,
+            result,
+        ),
+    };
 }
+
 
 // Port names here must match the set_io names in icesugar.pcf.
 // #[no_mangle(all)] keeps them verbatim in the generated Verilog.
@@ -79,6 +117,7 @@ entity icesugar_top(
     clk: clock,
 ) {
     reg(clk) rst initial(true) = false;
+    let (wire w, wire r) = inst dp_bram::<15, uint<W>, 0x7FFF>(clk, clk);
 
-    inst(2) main::<16>(clk, rst);
+    inst(2) cpu::<16>(clk, rst, w, r);
 }
