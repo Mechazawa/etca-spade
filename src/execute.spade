@@ -1,6 +1,5 @@
-use lib::{Flags, State, fetch};
+use lib::{Flags, State, MemReq};
 use lib::decoder::Instruction;
-use std::mem::{ReadPort, WritePort};
 
 fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>) -> (uint<WORD>, Flags) {
     let wide: uint<{WORD + 1}> = match opcode {
@@ -28,7 +27,7 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
     (
         result,
         Flags$(
-            zero: result == 0, 
+            zero: result == 0,
             negative: result_sign,
             carry: !is_logical && wide.as_bits()[WORD],
             overflow: !is_logical && (a_sign == rhs_sign) && (a_sign != result_sign),
@@ -36,65 +35,48 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
     )
 }
 
-pipeline(1) doData<#uint WORD, #uint A, #uint B, #uint W>(
-    clk: clock, 
-    opcode: uint<3>, 
-    a: uint<A>, 
-    b: uint<B>, 
+fn doData<#uint WORD, #uint B>(
+    opcode: uint<3>,
+    a: uint<3>,
+    v_a: uint<WORD>,
+    v_b: uint<B>,
     state: State<WORD>,
-    wire w: WritePort<W, uint<WORD>>,
-    wire r: ReadPort<W, uint<WORD>>,
-) -> uint<WORD> {
-    let result = match opcode {
-        0b000 => zext(b),
-        0b001 => sext(b.as_int()).as_uint(),
-        0b011 => {
-            w.write(b, Some(a));
-            a
-        },
-        0b010 => inst(1) fetch(clk, b, r),
-        0b100 => (a << 5) | b,
-        0b101 => a,
-        0b110 => if b < 4 { 
-            state.control_registers[trunc(b)] 
-        } else { 0 },
-        0b111 => a, // all writes are Nop atm
-    };
-
-    reg;
-    result
+) -> (Result<WORD>, MemReq<WORD>) {
+    match opcode {
+        0b000 => (Result::StoreReg(a, zext(v_b)), MemReq::None),
+        0b001 => (Result::StoreReg(a, sext(v_b.as_int()).as_uint()), MemReq::None),
+        0b011 => (Result::NoOp, MemReq::Write(zext(v_b), v_a)),   // store: mem[v_b] = v_a
+        0b010 => (Result::NoOp, MemReq::Read(zext(v_b), a)),      // load:  reg[a]  = mem[v_b]
+        0b100 => (Result::StoreReg(a, (v_a << 5) | zext(v_b)), MemReq::None),
+        0b101 => (Result::StoreReg(a, v_a), MemReq::None),
+        0b110 => (Result::StoreReg(a, if v_b < 4 { state.control_registers[trunc(v_b)] } else { 0 }), MemReq::None),
+        0b111 => (Result::NoOp, MemReq::None),   // all writes are Nop atm
+    }
 }
 
-pipeline(1) compute<#uint WORD, #uint B, #uint M>(
-    clk: clock, 
-    opcode: uint<4>, 
-    a: uint<3>, 
-    v_b: uint<B>, 
+// Pure: turn a decoded compute instruction into (result, flags, memory request).
+fn compute<#uint WORD, #uint B>(
+    opcode: uint<4>,
+    a: uint<3>,
+    v_b: uint<B>,
     state: State<WORD>,
-    wire w: WritePort<M, uint<WORD>>,
-    wire r: ReadPort<M, uint<WORD>>,
-) ->  (Result<WORD>, Option<Flags>) {
+) -> (Result<WORD>, Option<Flags>, MemReq<WORD>) {
     let v_a = state.registers[a];
 
-    reg;
-
-    let (output, flags) = if !opcode.as_bits()[3] {
+    if !opcode.as_bits()[3] {
+        let v_b: uint<WORD> = sext(v_b.as_int()).as_uint();
         let (o, f) = doMath(trunc(opcode), v_a, v_b);
+        let result = if opcode & 0b0011 == 0b11 {
+            Result::NoOp
+        } else {
+            Result::StoreReg(a, o)
+        };
 
-        (o, Some(f))
+        (result, Some(f), MemReq::None)
     } else {
-        ((inst(1) doData(clk, trunc(opcode), v_a, v_b, state, w, r)), None)
-    };
-
-    let result = if opcode & 0b0011 == 0b11 {
-        Result::NoOp
-    } else {
-        Result::StoreReg(a, output)
-    };
-
-    reg;
-
-    (result, flags)
+        let (result, req) = doData(trunc(opcode), a, v_a, v_b, state);
+        (result, None, req)
+    }
 }
 
 fn should_jump(opcode: uint<4>, flags: Flags) -> bool {
@@ -116,7 +98,7 @@ fn should_jump(opcode: uint<4>, flags: Flags) -> bool {
     }
 }
 
-enum Result<#uint SS> {
+pub enum Result<#uint SS> {
     StoreReg{r: uint<3>, value: uint<SS>},
     StoreMem{addr: uint<16>, value: uint<SS>},
     StoreCr{cr: uint<3>, value: uint<SS>},
@@ -124,30 +106,21 @@ enum Result<#uint SS> {
     NoOp,
 }
 
-pub entity process<#uint SS, #uint M>(
-    clk: clock, 
-    instr: Instruction, 
-    state: State<SS>,
-    w: WritePort<M, uint<SS>>,
-    r: ReadPort<M, uint<SS>>
-) -> (Result<SS>, Option<Flags>) {
+// Pure: no clock, no ports. Returns result/flags plus any memory request the
+// instruction wants performed. `cpu` performs the request and, for loads,
+// completes the result once the data comes back.
+pub fn process<#uint SS>(instr: Instruction, state: State<SS>) -> (Result<SS>, Option<Flags>, MemReq<SS>) {
     match instr {
-        Instruction::ComputeReg(opcode, a, b) => {
-            let v_b = state.registers[b];
-
-            inst(1) compute(clk, opcode, a, v_b, state, w, r)
-        },
-        Instruction::ComputeImm(opcode, a, v_b) => {
-            inst(1) compute(clk, opcode, a, v_b, state, w, r)
-        },
+        Instruction::ComputeReg(opcode, a, b) => compute(opcode, a, state.registers[b], state),
+        Instruction::ComputeImm(opcode, a, b) => compute(opcode, a, b, state),
         Instruction::CondRelJump(opcode, disp) => {
             let result = if should_jump(opcode, state.flags) {
                 Result::RelJump(disp)
             } else { Result::NoOp };
 
-            (result, None)
+            (result, None, MemReq::None)
         },
-        _ => (Result::NoOp, Option::None)
+        _ => (Result::NoOp, None, MemReq::None),
     }
 }
 

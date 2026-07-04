@@ -3,7 +3,7 @@ mod execute;
 
 use std::mem::{ReadPort, WritePort, dp_bram};
 use decoder::decode;
-use execute::{next_state, process};
+use execute::{next_state, process, Result};
 
 pub struct Flags {
     zero: bool,
@@ -17,6 +17,12 @@ pub struct State<#uint W> {
     registers: [uint<W>; 8],
     flags: Flags,
     control_registers: [uint<W>; 3],
+}
+
+pub enum MemReq<#uint W> {
+    None,
+    Read  { addr: uint<W>, dest: uint<3> },
+    Write { addr: uint<W>, data: uint<W> },
 }
 
 fn bootloader(pc: uint<8>) -> uint<16> {
@@ -34,79 +40,76 @@ fn bootloader(pc: uint<8>) -> uint<16> {
     }
 }
 
-pipeline(1) fetch<#uint M>(clk: clock, addr: uint<M>, wire r: ReadPort<M, uint<16>>) -> uint<16> {
-    let data = r.inst(1) read(clk, addr);
-
-    reg;
-
-    match addr {
-        a if addr < 0xF000 => data,
-        a if addr >= 0xF000 && addr < 0xFA00 => bootloader(trunc(a - 0xF000)), 
+fn fetch(pc: uint<16>, data: uint<16>) -> uint<16> {
+    match pc {
+        a if pc < 0xF000 => data,
+        a if pc >= 0xF000 && pc < 0xFA00 => bootloader(trunc(a - 0xF000)),
         _ => 0,
     }
 }
 
 enum Phase { Fetch, Execute, Load }
 
-impl Phase {
-    fn next(&self) -> Self {
-        match self {
-            Self::Fetch => Self::Execute,
-            Self::Execute => Self::Load,
-            Self::Load => Self::Fetch,
-        }
-    }
-}
-
-enum MemReq<#uint W> {
-    None,
-    Read  { addr: uint<W> },
-    Write { addr: uint<W>, data: uint<W> },
-}
-
 entity cpu<#uint W, #uint M>(
     clk: clock,
-    rst: bool,
-    wire w: WritePort<M, uint<W>>,
-    wire r: ReadPort<M, uint<W>>,
+    w: WritePort<M, uint<W>>,
+    r: ReadPort<M, uint<W>>,
 ) -> State<W> {
-    decl next_state;
     decl next_phase;
-    decl next_instr;
+    decl state_next;
     decl next_result;
-    decl next_mem_req;
+    decl next_flags;
+    decl next_req;
+    decl mem_out;
 
     reg(clk) phase: Phase initial(Phase::Fetch) = next_phase;
-    reg(clk) instr: Instruction initial(Instruction::NoOp)= next_instr; 
     reg(clk) result: Result<W> initial(Result::NoOp) = next_result;
+    reg(clk) flags: Option<Flags> initial(None) = next_flags;
+    reg(clk) req: MemReq<W> initial(MemReq::None) = next_req;
     reg(clk) state: State<W> initial(State$(
         pc: 0x8000,
         registers: [0; 8],
         flags: Flags$(zero: false, negative: false, carry: false, overflow: false),
         control_registers: [0, 0, 0],
-    )) = next_state
+    )) = state_next;
 
-    // the loop itself: one match on phase fills all four decls
-    let (next_phase, next_state, next_instr, next_result) = match phase {
-        Phase::Fetch => (
-            Phase::Execute,
-            state,
-            inst fetch(clk, state.pc, r),
-            result,
-        ),
-        Phase::Execute => {
-            Phase::Load,
-            state,
-            instr,
-            inst process(clk, instr, state, w, r),
+    let word = fetch(state.pc, mem_out);
+    let (exec_result, exec_flags, exec_req) = process(decode(word), state);
+
+    // ---- the ONLY place the memory ports are touched ----
+    let read_addr: uint<M> = match phase {
+        Phase::Execute => match exec_req {
+            MemReq::Read(addr, _) => trunc(addr),   // load: present data address
+            _ => trunc(state.pc),
         },
-        Phase::Load => (
-            Phase::Fetch,
-            next_state(state, result),
-            instr,
-            result,
-        ),
+        _ => trunc(state.pc),                       // Fetch/Load: present PC
     };
+    let mem_out = r.inst(1) read(clk, read_addr);
+
+    let (write_addr, write_data): (uint<M>, Option<uint<W>>) = match phase {
+        Phase::Execute => match exec_req {
+            MemReq::Write(addr, data) => (trunc(addr), Some(data)),
+            _ => (0, None),
+        },
+        _ => (0, None),
+    };
+    let _ = w.write(write_addr, write_data);
+    // -----------------------------------------------------
+
+    // In Load, mem_out holds the loaded word; finish a pending load into `dest`.
+    // For every other instruction the result was already known in Execute.
+    let committed = match req {
+        MemReq::Read(_, dest) => Result::StoreReg(dest, mem_out),
+        _ => result,
+    };
+
+    let (next_phase, state_next, next_result, next_flags, next_req) = match phase {
+        Phase::Fetch   => (Phase::Execute, state, result, flags, req),
+        Phase::Execute => (Phase::Load, state, exec_result, exec_flags, exec_req),
+        Phase::Load    => (Phase::Fetch, next_state(state, (committed, flags)), result, flags, req),
+    };
+
+    state
 }
 
 
@@ -116,8 +119,7 @@ entity cpu<#uint W, #uint M>(
 entity icesugar_top(
     clk: clock,
 ) {
-    reg(clk) rst initial(true) = false;
-    let (wire w, wire r) = inst dp_bram::<15, uint<W>, 0x7FFF>(clk, clk);
+    let (w, r) = inst dp_bram::<15, uint<16>, 0x7FFF>(clk, clk);
 
-    inst(2) cpu::<16>(clk, rst, w, r);
+    let _ = inst cpu::<16, 15>(clk, w, r);
 }
