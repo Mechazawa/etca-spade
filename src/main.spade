@@ -27,34 +27,46 @@ pub enum MemReq<#uint W> {
     Write { addr: uint<W>, data: uint<W> },
 }
 
-// struct GPIO {
-//     addr: uint<16>,
-//     wire pin: &bool,
-// }
+fn read_gpio<#uint G>(gpio: [GPIO; G], addr: uint<16>) -> Option<bool> {
+    gen if G > 0 {
+        if gpio[0].addr == addr {
+            Some(gpio.pin)
+        } else {
+            read_gpio(addr, gpio[1..])
+        }
+    } else {
+        None
+    }
+}
 
-// struct MemMap<#uint M, #uint W, #uint G> {
-//     mem: (   
-//         w: WritePort<M, uint<W>>,
-//         r: ReadPort<M, uint<W>>,
-//     )
-//     gpio: [GPIO; G],
-// }
+fn write_gpio<#uint G>(gpio: [GPIO; G], addr: uint<16>, value: bool) {
+    gen if G > 0 {
+        if gpio[0].addr == addr {
+            gpio.pin = value;
+        } else {
+            write_gpio(addr, gpio, value);
+        }
+    };
+}
 
-
-fn fetch(pc: uint<16>, data: uint<16>) -> uint<16> {
-    match pc {
-        a if pc < 0xF000 => data,
-        a if pc >= 0xF000 && pc < 0xFA00 => get_rom_op(trunc(a - 0xF000)),
-        _ => 0,
+fn fetch<#uint G>(addr: uint<16>, data: uint<16>, gpio: [GPIO; G]) -> uint<16> {
+    match addr {
+        a if addr < 0xF000 => data,
+        a if addr >= 0xF000 && addr < 0xFA00 => get_rom_op(trunc(a - 0xF000)),
+        _ => match read_gpio(addr) {
+            Some(v) => zext(v),
+            None => 0,
+        },
     }
 }
 
 enum Phase { Fetch, Execute, Load }
 
-entity cpu<#uint W, #uint M>(
+entity cpu<#uint W, #uint M, #uint G>(
     clk: clock,
     w: WritePort<M, uint<W>>,
     r: ReadPort<M, uint<W>>,
+    gpio: [GPIO; G],
 ) -> State<W> {
     decl next_phase;
     decl state_next;
@@ -74,7 +86,7 @@ entity cpu<#uint W, #uint M>(
         control_registers: [0, 0, 0],
     )) = state_next;
 
-    let word = fetch(state.pc, mem_out);
+    let word = fetch(state.pc, mem_out, gpio);
     let (exec_result, exec_flags, exec_req) = process(decode(word), state);
 
     // ---- the ONLY place the memory ports are touched ----
@@ -113,14 +125,18 @@ entity cpu<#uint W, #uint M>(
     state
 }
 
-
 // Port names here must match the set_io names in icesugar.pcf.
 // #[no_mangle(all)] keeps them verbatim in the generated Verilog.
 #[no_mangle(all)]
 entity icesugar_top(
     clk: clock,
+    inv LED: [&bool; 3],
+    inv SW: [&bool; 4],
 ) {
     let (w, r) = inst dp_bram::<15, uint<16>, 0x7FFF>(clk, clk);
+    let gpio = [
+        LED, SW,
+    ];
 
-    let _ = inst cpu::<16, 15>(clk, w, r);
+    let _ = inst cpu::<16, 15, 0>(clk, w, r, gpio);
 }

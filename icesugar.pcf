@@ -6,17 +6,17 @@
 # line only once you add the matching port to `icesugar_top`.
 
 set_io clk   35
-set_io LED_R 40
-set_io LED_G 41
-set_io LED_B 39
+set_io LED[0] 40
+set_io LED[1] 41
+set_io LED[2] 39
 
 # --- Full iCESugar v1.5 pinout (reference; source: wuxx/icesugar io.pcf) ---
 # On-board RGB LED is common-anode / active-low: drive a pin LOW to light it.
 #
-# set_io SW[0] 18
-# set_io SW[1] 19
-# set_io SW[2] 20
-# set_io SW[3] 21
+set_io SW[0] 18
+set_io SW[1] 19
+set_io SW[2] 20
+set_io SW[3] 21
 #
 # set_io RX    4
 # set_io TX    6
