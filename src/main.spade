@@ -1,53 +1,43 @@
 mod decoder;
 mod execute;
 
-struct Flags {
+use std::mem::{ReadPort, WritePort, dp_bram};
+use decoder::decode;
+use execute::{next_state, process};
+
+pub struct Flags {
     zero: bool,
     negative: bool,
     carry: bool,
     overflow: bool,
 }
 
-fn alu<#uint WORD>(opcode: uint<3>, a: uint<WORD>, b: uint<WORD>) -> (uint<WORD>, Flags) {
-    let wide: uint<{WORD + 1}> = match opcode {
-        0b000 => a + b,
-        0b001 => trunc(a + (~b) + 1),
-        0b011 => trunc(a + (~b) + 1),
-        0b010 => trunc((~a) + b + 1),
-        0b100 => zext(a | b),
-        0b101 => zext(a ^ b),
-        0b110 => zext(a & b),
-        0b111 => zext(a & b),
-    };
+pub struct Machine<#uint WORD> {
+    sp: uint<16>,
+    registers: [uint<WORD>; 8],
+    memory: (WritePort<WORD, uint<WORD>>, ReadPort<WORD, uint<WORD>>),
+    flags: Flags,
+    control_registers: [uint<WORD>; 3],
+}
 
-    let result: uint<WORD> = trunc(wide);
+pipeline(1) tick<#uint WORD>(clk: clock, instr: uint<WORD>) {
+    let decoded = decode(instr);
 
-    let result_sign = result.to_int() < 0;
-    let a_sign = a.to_int() < 0;
-    let b_sign = b.to_int() < 0;
-    let is_logical = opcode.as_bits()[2];
+    let (result, flags) = inst(1) process(clk, instr, machine);
 
-    let is_sub = opcode == 0b01 || opcode == 0b11 || opcode == 0b10;
-
-    let rhs_sign = if is_sub { !b_sign } else { b_sign };
-
-    (
-        result,
-        Flags$(
-            zero: result == 0, 
-            negative: result_sign,
-            carry: !is_logical && wide.as_bits()[WORD],
-            overflow: !is_logical && (a_sign == rhs_sign) && (a_sign != result_sign),
-        )
-    )
+    reg;
+    reg(clk) machine: Machine<WORD> initial(Machine(
+        0x8000,
+        [0; 8],
+        dp_bram::<8, uint<WORD>, 0x7FFF>(clk, clk),
+        Flags(false, false, false, false),
+        [0, 0, 0],
+    )) = next_state(machine, result, flags);
 }
 
 entity main(
     clk: clock,
     rst: bool,
-    LED_R: inv &bool,
-    LED_G: inv &bool,
-    LED_B: inv &bool,
 ) {
     // reg(clk) regs: [uint<WORD>; 8] initial([0, 0, 0, 0, 0, 0, 0, 0]) = next_regs;
     // reg(clk) flags: Flags initial(Flags(false, false, false, false)) = next_flags;
@@ -58,11 +48,8 @@ entity main(
 #[no_mangle(all)]
 entity icesugar_top(
     clk: clock,
-    LED_R: inv &bool,
-    LED_G: inv &bool,
-    LED_B: inv &bool,
 ) {
     reg(clk) rst initial(true) = false;
 
-    inst main(clk, rst, LED_R, LED_G, LED_B);
+    inst main(clk, rst);
 }

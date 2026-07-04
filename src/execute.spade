@@ -1,6 +1,8 @@
+use lib::{Flags, Machine};
+use lib::decoder::Instruction;
 
-fn math<#uint SIZE>(opcode: uint<3>, a: uint<SIZE>, b: uint<SIZE>) -> (uint<SIZE>, Flags) {
-    let wide: uint<{SIZE + 1}> = match opcode {
+fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>) -> (uint<WORD>, Flags) {
+    let wide: uint<{WORD + 1}> = match opcode {
         0b000 => a + b,
         0b001 => trunc(a + (~b) + 1),
         0b011 => trunc(a + (~b) + 1),
@@ -11,7 +13,7 @@ fn math<#uint SIZE>(opcode: uint<3>, a: uint<SIZE>, b: uint<SIZE>) -> (uint<SIZE
         0b111 => zext(a & b),
     };
 
-    let result: uint<SIZE> = trunc(wide);
+    let result: uint<WORD> = trunc(wide);
 
     let result_sign = result.to_int() < 0;
     let a_sign = a.to_int() < 0;
@@ -27,29 +29,134 @@ fn math<#uint SIZE>(opcode: uint<3>, a: uint<SIZE>, b: uint<SIZE>) -> (uint<SIZE
         Flags$(
             zero: result == 0, 
             negative: result_sign,
-            carry: !is_logical && wide.as_bits()[SIZE],
+            carry: !is_logical && wide.as_bits()[WORD],
             overflow: !is_logical && (a_sign == rhs_sign) && (a_sign != result_sign),
         )
     )
 }
 
+pipeline(1) doData<#uint WORD, #uint A, #uint B>(clk: clock, opcode: uint<3>, a: uint<A>, b: uint<A>, wire machine: Machine<WORD>) -> uint<WORD> {
+    let (wire w, wire r) = machine.memory;
+    let result = match opcode {
+        0b000 => zext(b),
+        0b001 => sext(b.as_int()).as_uint(),
+        0b011 => {
+            w.write(b, Some(a));
+            a
+        },
+        0b010 => r.inst(1) read(clk, b), // Optimize into returning Result::storeMem
+        0b100 => (a << 5) | b,
+        0b101 => a,
+        0b110 => if b < 4 { 
+            machine.control_registers[trunc(b)] 
+        } else { 0 },
+        0b111 => a, // all writes are Nop atm
+    };
+
+    reg;
+    result
+}
+
+pipeline(1) compute<#uint WORD, #uint A, #uint B>(clk: clock, opcode: uint<4>, a: uint<3>, v_b: uint<A>, wire machine: Machine<WORD>) ->  (Result<WORD>, Option<Flags>) {
+    let v_a = machine.registers[a];
+    let (output, flags) = if !opcode.as_bits()[3] {
+        let (o, f) = doMath(trunc(opcode), v_a, v_b);
+
+        (o, Some(f))
+    } else {
+        ((inst(1) doData(clk, trunc(opcode), v_a, v_b, machine)), None)
+    };
+
+    let result = if opcode & 0b0011 == 0b11 {
+        Result::NoOp
+    } else {
+        Result::StoreReg(a, output)
+    };
+
+    reg;
+
+    (result, flags)
+}
+
+fn should_jump(opcode: uint<4>, flags: Flags) -> bool {
+    let result = match trunc::<_, uint<3>>(opcode >> 1) {
+        0b000 => flags.zero,
+        0b001 => flags.negative,
+        0b010 => flags.carry,
+        0b011 => flags.overflow,
+        0b100 => flags.carry || flags.zero,
+        0b101 => flags.negative != flags.overflow,
+        0b110 => flags.zero || (flags.negative != flags.overflow),
+        0b111 => false,
+    };
+
+    if opcode.as_bits()[0] {
+        !result
+    } else {
+        result
+    }
+}
+
 enum Result<#uint SS> {
-    StoreReg{r: uint<3>, value: uint<{1 << SS}>},
-    StoreMem{addr: uint<16>, value: uint<{1 << SS}>},
-    StoreCr{cr: uint<3>, value: uint<{1 << SS}>},
+    StoreReg{r: uint<3>, value: uint<SS>},
+    StoreMem{addr: uint<16>, value: uint<SS>},
+    StoreCr{cr: uint<3>, value: uint<SS>},
+    RelJump{disp: int<9>},
     NoOp,
 }
 
-fn execute<#uint SS>(instr: Instruction, flags: Flags, registers: uint<SS>[8]) -> (Result, Option<Flags>) {
-    match instr {
+pub pipeline(1) process<#uint SS>(clk: clock, instr: Instruction, wire machine: Machine<SS>) -> (Result<SS>, Option<Flags>) {
+    let output = match instr {
         Instruction::ComputeReg(opcode, a, b) => {
-            let v_a = registers[v_a];
-            let v_b = registers[v_b];
+            let v_b = machine.registers[b];
 
-            
+            compute(clk, opcode, a, v_b, machine)
         },
-        Instruction::ComputeImm{opcode, a, b} =>,
-        Instruction::CondRelJump{opcode, disp} => ,
-        Instruction::NoOp,
+        Instruction::ComputeImm(opcode, a, v_b) => {
+            compute(clk, opcode, a, v_b, machine)
+        },
+        Instruction::CondRelJump(opcode, disp) => {
+            let result = if should_jump(opcode, machine.flags) {
+                Result::RelJump(disp)
+            } else { Result::NoOp };
+
+            (result, None)
+        },
+        _ => (Result::NoOp, Option::None)
+    };
+
+    reg;
+    output
+}
+
+fn write_reg<#uint N, #uint V, #uint A>(registers: [uint<V>; N], idx: uint<A>, val: uint<V>) -> [uint<V>; N] {
+    gen if N == 0 {
+        []
+    } else {
+        let head = if idx == 0 { val } else { registers[0] };
+
+        [head].concat(write_reg(registers[1..], trunc(idx - 1), val))
     }
+}
+
+pub fn next_state<#uint SS>(machine: Machine<SS>, result: Result<SS>, flags: Option<Flags>) -> Machine<SS> {
+    Machine$(
+        sp: match result {
+            Result::RelJump(disp) => machine.sp + disp,
+            _ => machine.sp,
+        },
+        registers: match result {
+            Result::StoreReg(r, value) => write_reg(machine.registers, r, value),
+            _ => machine.registers,
+        },
+        memory: machine.memory,
+        flags:  match flags {
+            Some(d) => d,
+            None => machine.flags,
+        },
+        control_registers: match result {
+            Result::StoreCr(cr, value) => write_reg(machine.control_register, cr, value),
+            _ => machine.control_register,
+        }
+    )
 }

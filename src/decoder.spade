@@ -1,7 +1,7 @@
-enum Instruction {
+pub enum Instruction {
     ComputeReg{opcode: uint<4>, a: uint<3>, b: uint<3>},
     ComputeImm{opcode: uint<4>, a: uint<3>, b: uint<5>},
-    CondRelJump{opcode: uint<4>, disp: uint<9>},
+    CondRelJump{opcode: uint<4>, disp: int<9>},
     NoOp,
 }
 
@@ -41,7 +41,7 @@ fn decodeJmp<#uint WORD>(instr: uint<WORD>) -> Instruction {
     }
 }
 
-fn decode<#uint WORD>(instr: uint<WORD>) -> Instruction {
+pub fn decode<#uint WORD>(instr: uint<WORD>) -> Instruction {
     let format_marker: uint<2> = trunc(instr >> (WORD - 2));
 
     match format_marker {
