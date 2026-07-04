@@ -12,27 +12,23 @@ pub struct Flags {
     overflow: bool,
 }
 
-pub struct Machine<#uint WORD> {
-    sp: uint<16>,
-    registers: [uint<WORD>; 8],
-    memory: (WritePort<WORD, uint<WORD>>, ReadPort<WORD, uint<WORD>>),
+pub struct State<#uint W> {
+    pc: uint<16>,
+    registers: [uint<W>; 8],
     flags: Flags,
-    control_registers: [uint<WORD>; 3],
+    control_registers: [uint<W>; 3],
 }
 
-pipeline(1) tick<#uint WORD>(clk: clock, instr: uint<WORD>) {
+entity tick<#uint W>(clk: clock, instr: uint<W>) {
     let decoded = decode(instr);
+    let (w, r) = dp_bram::<8, uint<W>, 0x7FFF>(clk, clk);
 
-    let (result, flags) = inst(1) process(clk, instr, machine);
-
-    reg;
-    reg(clk) machine: Machine<WORD> initial(Machine(
-        0x8000,
-        [0; 8],
-        dp_bram::<8, uint<WORD>, 0x7FFF>(clk, clk),
-        Flags(false, false, false, false),
-        [0, 0, 0],
-    )) = next_state(machine, result, flags);
+    reg(clk) state: State<W> initial(State$(
+        pc: 0x8000,
+        registers: [0; 8],
+        flags: Flags$(zero: false, negative: false, carry: false, overflow: false),
+        control_registers: [0, 0, 0],
+    )) = next_state(state, inst process(clk, decoded, state, w, r));
 }
 
 entity main(

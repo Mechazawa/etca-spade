@@ -1,5 +1,6 @@
-use lib::{Flags, Machine};
+use lib::{Flags, State};
 use lib::decoder::Instruction;
+use std::mem::{ReadPort, WritePort};
 
 fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>) -> (uint<WORD>, Flags) {
     let wide: uint<{WORD + 1}> = match opcode {
@@ -35,8 +36,15 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
     )
 }
 
-pipeline(1) doData<#uint WORD, #uint A, #uint B>(clk: clock, opcode: uint<3>, a: uint<A>, b: uint<A>, wire machine: Machine<WORD>) -> uint<WORD> {
-    let (wire w, wire r) = machine.memory;
+pipeline(1) doData<#uint WORD, #uint A, #uint B>(
+    clk: clock, 
+    opcode: uint<3>, 
+    a: uint<A>, 
+    b: uint<A>, 
+    state: State<WORD>,
+    wire w: WritePort<8, uint<WORD>>,
+    wire r: ReadPort<8, uint<WORD>>,
+) -> uint<WORD> {
     let result = match opcode {
         0b000 => zext(b),
         0b001 => sext(b.as_int()).as_uint(),
@@ -48,7 +56,7 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B>(clk: clock, opcode: uint<3>, a:
         0b100 => (a << 5) | b,
         0b101 => a,
         0b110 => if b < 4 { 
-            machine.control_registers[trunc(b)] 
+            state.control_registers[trunc(b)] 
         } else { 0 },
         0b111 => a, // all writes are Nop atm
     };
@@ -57,14 +65,22 @@ pipeline(1) doData<#uint WORD, #uint A, #uint B>(clk: clock, opcode: uint<3>, a:
     result
 }
 
-pipeline(1) compute<#uint WORD, #uint A, #uint B>(clk: clock, opcode: uint<4>, a: uint<3>, v_b: uint<A>, wire machine: Machine<WORD>) ->  (Result<WORD>, Option<Flags>) {
-    let v_a = machine.registers[a];
+pipeline(1) compute<#uint WORD, #uint A, #uint B>(
+    clk: clock, 
+    opcode: uint<4>, 
+    a: uint<3>, 
+    v_b: uint<A>, 
+    state: State<WORD>,
+    wire w: WritePort<8, uint<WORD>>,
+    wire r: ReadPort<8, uint<WORD>>,
+) ->  (Result<WORD>, Option<Flags>) {
+    let v_a = state.registers[a];
     let (output, flags) = if !opcode.as_bits()[3] {
         let (o, f) = doMath(trunc(opcode), v_a, v_b);
 
         (o, Some(f))
     } else {
-        ((inst(1) doData(clk, trunc(opcode), v_a, v_b, machine)), None)
+        ((inst(1) doData(clk, trunc(opcode), v_a, v_b, state, w, r)), None)
     };
 
     let result = if opcode & 0b0011 == 0b11 {
@@ -105,18 +121,24 @@ enum Result<#uint SS> {
     NoOp,
 }
 
-pub pipeline(1) process<#uint SS>(clk: clock, instr: Instruction, wire machine: Machine<SS>) -> (Result<SS>, Option<Flags>) {
+pub pipeline(1) process<#uint SS>(
+    clk: clock, 
+    instr: Instruction, 
+    state: State<SS>,
+    wire w: WritePort<8, uint<SS>>,
+    wire r: ReadPort<8, uint<SS>>
+) -> (Result<SS>, Option<Flags>) {
     let output = match instr {
         Instruction::ComputeReg(opcode, a, b) => {
-            let v_b = machine.registers[b];
+            let v_b = state.registers[b];
 
-            compute(clk, opcode, a, v_b, machine)
+            compute(clk, opcode, a, v_b, state, w, r)
         },
         Instruction::ComputeImm(opcode, a, v_b) => {
-            compute(clk, opcode, a, v_b, machine)
+            compute(clk, opcode, a, v_b, state, w, r)
         },
         Instruction::CondRelJump(opcode, disp) => {
-            let result = if should_jump(opcode, machine.flags) {
+            let result = if should_jump(opcode, state.flags) {
                 Result::RelJump(disp)
             } else { Result::NoOp };
 
@@ -139,24 +161,29 @@ fn write_reg<#uint N, #uint V, #uint A>(registers: [uint<V>; N], idx: uint<A>, v
     }
 }
 
-pub fn next_state<#uint SS>(machine: Machine<SS>, result: Result<SS>, flags: Option<Flags>) -> Machine<SS> {
-    Machine$(
-        sp: match result {
-            Result::RelJump(disp) => machine.sp + disp,
-            _ => machine.sp,
+pub fn next_state<#uint SS>(state: State<SS>, data: (Result<SS>, Option<Flags>)) -> State<SS> {
+    let (result, flags) = data;
+
+    State$(
+        pc: match result {
+            Result::RelJump(disp) => if disp >= 0 {
+                trunc(state.pc + zext(disp.abs()))
+            } else {
+                trunc(state.pc - zext(disp.abs()))
+            },
+            _ => state.pc,
         },
         registers: match result {
-            Result::StoreReg(r, value) => write_reg(machine.registers, r, value),
-            _ => machine.registers,
+            Result::StoreReg(r, value) => write_reg(state.registers, r, value),
+            _ => state.registers,
         },
-        memory: machine.memory,
         flags:  match flags {
             Some(d) => d,
-            None => machine.flags,
+            None => state.flags,
         },
         control_registers: match result {
-            Result::StoreCr(cr, value) => write_reg(machine.control_register, cr, value),
-            _ => machine.control_register,
+            Result::StoreCr(cr, value) => write_reg(state.control_registers, cr, value),
+            _ => state.control_registers,
         }
     )
 }
