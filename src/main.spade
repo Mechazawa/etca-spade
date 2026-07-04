@@ -1,9 +1,11 @@
 mod decoder;
 mod execute;
+mod program;
 
 use std::mem::{ReadPort, WritePort, dp_bram};
 use decoder::decode;
 use execute::{next_state, process, Result};
+use program::get_rom_op;
 
 pub struct Flags {
     zero: bool,
@@ -25,25 +27,24 @@ pub enum MemReq<#uint W> {
     Write { addr: uint<W>, data: uint<W> },
 }
 
-fn bootloader(pc: uint<8>) -> uint<16> {
-    let b: [uint<16>; _] = [
-        0b00_01_1001_000_000_00,
-        0b00_01_1001_000_000_00,
-        0b00_01_1001_000_000_00,
-        0b00_01_1001_000_000_00,
-    ];
+// struct GPIO {
+//     addr: uint<16>,
+//     wire pin: &bool,
+// }
 
-    if zext(b.len()) < pc {
-        0b00_01_1001_000_000_00
-    } else {
-        b[trunc(pc)]
-    }
-}
+// struct MemMap<#uint M, #uint W, #uint G> {
+//     mem: (   
+//         w: WritePort<M, uint<W>>,
+//         r: ReadPort<M, uint<W>>,
+//     )
+//     gpio: [GPIO; G],
+// }
+
 
 fn fetch(pc: uint<16>, data: uint<16>) -> uint<16> {
     match pc {
         a if pc < 0xF000 => data,
-        a if pc >= 0xF000 && pc < 0xFA00 => bootloader(trunc(a - 0xF000)),
+        a if pc >= 0xF000 && pc < 0xFA00 => get_rom_op(trunc(a - 0xF000)),
         _ => 0,
     }
 }
