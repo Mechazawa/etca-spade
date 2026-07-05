@@ -15,7 +15,7 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
 
     let result: uint<WORD> = trunc(wide);
 
-    let result_sign = result.to_int() < 0;
+    let result_sign = result.as_int() < 0;
     let a_sign = a.to_int() < 0;
     let b_sign = b.to_int() < 0;
     let is_logical = opcode.as_bits()[2];
@@ -29,7 +29,7 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
         Flags$(
             zero: result == 0,
             negative: result_sign,
-            carry: !is_logical && wide.as_bits()[WORD],
+            carry: !is_logical && (wide.as_bits()[WORD] != is_sub),
             overflow: !is_logical && (a_sign == rhs_sign) && (a_sign != result_sign),
         )
     )
@@ -144,7 +144,7 @@ pub fn next_state<#uint SS>(state: State<SS>, data: (Result<SS>, Option<Flags>))
             } else {
                 trunc(state.pc - zext(disp.abs()))
             },
-            _ => state.pc,
+            _ => trunc(state.pc + 2),
         },
         registers: match result {
             Result::StoreReg(r, value) => write_reg(state.registers, r, value),
