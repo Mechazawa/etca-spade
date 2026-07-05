@@ -22,6 +22,7 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
 
     let is_sub = opcode == 0b01 || opcode == 0b11 || opcode == 0b10;
 
+    // TODO the flag logic is kinda trash
     let (lhs_sign, rhs_sign) = match opcode {
         0b010 => (!a_sign, b_sign), // RSUB: ~a + b
         0b001 => (a_sign, !b_sign), // SUB, CMP: a + ~b
