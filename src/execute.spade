@@ -1,6 +1,12 @@
 use lib::{Flags, State, MemReq};
 use lib::decoder::Instruction;
 
+// Test harness: concrete instance so cocotb can point `top` at it.
+// (generic units can't be tested directly)
+entity math_harness(opcode: uint<3>, a: uint<16>, b: uint<16>) -> (uint<16>, Flags) {
+    doMath::<16, 16, 16>(opcode, a, b)
+}
+
 fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>) -> (uint<WORD>, Flags) {
     let wide: uint<{WORD + 1}> = match opcode {
         0b000 => a + b,
