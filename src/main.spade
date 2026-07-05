@@ -30,8 +30,8 @@ pub enum MemReq<#uint W> {
 
 fn fetch(addr: uint<16>, data: uint<16>) -> uint<16> {
     match addr {
-        a if addr < 0xF000 => data,
-        a if addr >= 0xF000 && addr < 0xFA00 => get_rom_op(trunc(a - 0xF000)),
+        a if addr < 0x7FFF => data,
+        a if addr >= 0x8000 && addr < 0x8FFF => get_rom_op(trunc(a - 0x8000)),
         _ => 0,
     }
 }
