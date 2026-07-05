@@ -16,8 +16,8 @@ fn doMath<#uint WORD, #uint A, #uint B>(opcode: uint<3>, a: uint<A>, b: uint<B>)
     let result: uint<WORD> = trunc(wide);
 
     let result_sign = result.as_int() < 0;
-    let a_sign = a.to_int() < 0;
-    let b_sign = b.to_int() < 0;
+    let a_sign = a.as_int() < 0;
+    let b_sign = b.as_int() < 0;
     let is_logical = opcode.as_bits()[2];
 
     let is_sub = opcode == 0b01 || opcode == 0b11 || opcode == 0b10;
