@@ -1,0 +1,38 @@
+struct Gpio<#uint S> {
+    addr: uint<16>,
+    pins: [&bool; S],
+}
+
+// fn read_gpio<#uint G>(gpio: [Gpio; G], addr: uint<16>) -> Option<bool> {
+//     gen if G > 0 {
+//         if gpio[0].addr == addr {
+//             Some(gpio.pin)
+//         } else {
+//             read_gpio(addr, gpio[1..])
+//         }
+//     } else {
+//         None
+//     }
+// }
+
+// fn write_gpio<#uint G>(gpio: [Gpio; G], addr: uint<16>, value: uint<8>) {
+//     gen if G > 0 {
+//         if gpio[0].addr == addr {
+//             set gpio.pin = value;
+//         } else {
+//             write_gpio(addr, gpio, value);
+//         }
+//     };
+// }
+
+// fn fetch<#uint G>(addr: uint<16>, data: uint<16>, gpio: [Gpio; G]) -> uint<16> {
+//     match addr {
+//         a if addr < 0xF000 => data,
+//         a if addr >= 0xF000 && addr < 0xFA00 => get_rom_op(trunc(a - 0xF000)),
+//         _ => match read_gpio(addr) {
+//             Some(v) => zext(v),
+//             None => 0,
+//         },
+//     }
+// }
+
