@@ -35,7 +35,7 @@ fn decodeJmp<#uint WORD>(instr: uint<WORD>) -> Instruction {
         let opcode: uint<4> = trunc(instr >> 8);
 
         let d_lsb: uint<8> = trunc(instr);
-        let d_msb: uint<1> = trunc(instr >> (WORD - 8 - 4));
+        let d_msb: uint<1> = trunc(instr >> (WORD - 4));
 
         Instruction::CondRelJump(opcode, d_msb.concat(d_lsb).as_int())
     }
