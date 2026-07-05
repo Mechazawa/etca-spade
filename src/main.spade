@@ -1,6 +1,7 @@
 mod decoder;
 mod execute;
 mod program;
+mod memory;
 
 use std::mem::{ReadPort, WritePort, dp_bram};
 use decoder::decode;
@@ -27,38 +28,14 @@ pub enum MemReq<#uint W> {
     Write { addr: uint<W>, data: uint<W> },
 }
 
-fn read_gpio<#uint G>(gpio: [GPIO; G], addr: uint<16>) -> Option<bool> {
-    gen if G > 0 {
-        if gpio[0].addr == addr {
-            Some(gpio.pin)
-        } else {
-            read_gpio(addr, gpio[1..])
-        }
-    } else {
-        None
-    }
-}
-
-fn write_gpio<#uint G>(gpio: [GPIO; G], addr: uint<16>, value: bool) {
-    gen if G > 0 {
-        if gpio[0].addr == addr {
-            gpio.pin = value;
-        } else {
-            write_gpio(addr, gpio, value);
-        }
-    };
-}
-
-fn fetch<#uint G>(addr: uint<16>, data: uint<16>, gpio: [GPIO; G]) -> uint<16> {
+fn fetch(addr: uint<16>, data: uint<16>) -> uint<16> {
     match addr {
         a if addr < 0xF000 => data,
         a if addr >= 0xF000 && addr < 0xFA00 => get_rom_op(trunc(a - 0xF000)),
-        _ => match read_gpio(addr) {
-            Some(v) => zext(v),
-            None => 0,
-        },
+        _ => 0,
     }
 }
+
 
 enum Phase { Fetch, Execute, Load }
 
@@ -66,7 +43,6 @@ entity cpu<#uint W, #uint M, #uint G>(
     clk: clock,
     w: WritePort<M, uint<W>>,
     r: ReadPort<M, uint<W>>,
-    gpio: [GPIO; G],
 ) -> State<W> {
     decl next_phase;
     decl state_next;
@@ -86,7 +62,7 @@ entity cpu<#uint W, #uint M, #uint G>(
         control_registers: [0, 0, 0],
     )) = state_next;
 
-    let word = fetch(state.pc, mem_out, gpio);
+    let word = fetch(state.pc, mem_out);
     let (exec_result, exec_flags, exec_req) = process(decode(word), state);
 
     // ---- the ONLY place the memory ports are touched ----
@@ -130,13 +106,8 @@ entity cpu<#uint W, #uint M, #uint G>(
 #[no_mangle(all)]
 entity icesugar_top(
     clk: clock,
-    inv LED: [&bool; 3],
-    inv SW: [&bool; 4],
 ) {
     let (w, r) = inst dp_bram::<15, uint<16>, 0x7FFF>(clk, clk);
-    let gpio = [
-        LED, SW,
-    ];
 
-    let _ = inst cpu::<16, 15, 0>(clk, w, r, gpio);
+    let _ = inst cpu::<16, 15, 0>(clk, w, r);
 }
