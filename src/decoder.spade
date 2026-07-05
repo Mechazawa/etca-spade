@@ -17,7 +17,7 @@ fn decodeComp<#uint WORD>(instr: uint<WORD>) -> Instruction {
         let reg_a: uint<3> = trunc(instr >> 5);
 
         match format_marker {
-            0b00 => if instr & 0b00 == 0 { 
+            0b00 => if mem_addr_mode == 0 { 
                 Instruction::ComputeReg(opcode, reg_a, trunc(instr >> 2))
             } else { Instruction::NoOp },
             0b01 => Instruction::ComputeImm(opcode, reg_a, trunc(instr)),
